@@ -39,7 +39,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from typing import Dict, List, Optional
+from typing import (
+    Any,
+    Dict,
+    List
+)
 
 from agents.knowledge_planner import (
     PlannerResult
@@ -62,11 +66,10 @@ from core.constants import (
 # PROMPT RESULT
 # =========================================================
 
-@dataclass
+@dataclass(slots=True)
 class PromptResult:
     """
-    Complete prompt returned by the
-    Prompt Builder.
+    Complete prompt package.
     """
 
     system_prompt: str = ""
@@ -79,10 +82,9 @@ class PromptResult:
 
     full_prompt: str = ""
 
-    metadata: Dict = field(
+    metadata: Dict[str, Any] = field(
         default_factory=dict
     )
-
 
 # =========================================================
 # PROMPT BUILDER
@@ -94,6 +96,9 @@ class PromptBuilder:
     """
 
     def __init__(self):
+        """
+        PromptBuilder is intentionally stateless.
+        """
 
         pass
     # =====================================================
@@ -224,7 +229,7 @@ User Question
 
     @staticmethod
     def format_value(
-        value
+        value: Any
     ) -> str:
         """
         Format any Python value into a
@@ -261,8 +266,11 @@ User Question
 
             lines = []
 
-            for key, val in value.items():
+            for key, val in sorted(
 
+                value.items()
+            
+            ):
                 lines.append(
 
                     f"{key}: {PromptBuilder.format_value(val)}"
@@ -295,13 +303,13 @@ User Question
         if not item.retrieved:
 
             lines.append(
-
+        
                 "No information available."
-
+        
             )
-
+        
             return "\n".join(lines)
-
+        
         if isinstance(item.data, dict):
 
             for key, value in item.data.items():
@@ -402,15 +410,21 @@ User Question
         """
         Format learning objectives.
         """
-
-        if not planner.learning_objectives:
-
-            return "- Understand the requested topic."
-
+    
+        objectives = planner.learning_objectives
+    
+        if not objectives:
+    
+            objectives = [
+    
+                "Understand the requested topic."
+    
+            ]
+    
         return self.format_list(
-
-            planner.learning_objectives
-
+    
+            objectives
+    
         )
 
 
@@ -425,29 +439,34 @@ User Question
         """
         Format suggested visualizations.
         """
-
-        if not planner.visual_components:
-
-            return "- None"
-
+    
         visuals = [
-
+    
             self.humanize(
-
+    
                 visual
-
+    
             )
-
-            for visual in planner.visual_components
-
+    
+            for visual
+    
+            in planner.visual_components
+    
         ]
-
+    
+        if not visuals:
+    
+            visuals = [
+    
+                "None"
+    
+            ]
+    
         return self.format_list(
-
+    
             visuals
-
+    
         )
-
 
     # =====================================================
     # FORMAT CURIOSITY
@@ -460,17 +479,22 @@ User Question
         """
         Format curiosity prompts.
         """
-
-        if not planner.suggested_questions:
-
-            return "- None"
-
+    
+        prompts = planner.suggested_questions
+    
+        if not prompts:
+    
+            prompts = [
+    
+                "None"
+    
+            ]
+    
         return self.format_list(
-
-            planner.suggested_questions
-
+    
+            prompts
+    
         )
-
 
     # =====================================================
     # BUILD EDUCATIONAL INSTRUCTIONS
@@ -532,21 +556,23 @@ User Question
 
         )
 
-        return self.EDUCATIONAL_TEMPLATE.format(
+        instruction = self.EDUCATIONAL_TEMPLATE.format(
 
             strategy=strategy,
-
+        
             difficulty=difficulty,
-
+        
             profile=profile,
-
+        
             objectives=objectives,
-
+        
             visuals=visuals,
-
+        
             questions=curiosity
-
+        
         )
+        
+        return instruction
     # =====================================================
     # TEACHING STRATEGY
     # =====================================================
@@ -556,53 +582,51 @@ User Question
         strategy: str
     ) -> str:
         """
-        Convert an internal teaching strategy
-        into natural language instructions.
+        Convert an internal strategy into
+        natural-language guidance.
         """
-
-        strategy_map = {
-
+    
+        strategies = {
+    
             STRATEGY_CONCEPT_FIRST:
                 (
-                    "Begin with the core concept. "
-                    "Build intuition before introducing "
+                    "Begin with the fundamental idea. "
+                    "Develop intuition before introducing "
                     "technical details."
                 ),
-
+    
             STRATEGY_GUIDED:
                 (
                     "Teach progressively from simple "
-                    "ideas toward advanced concepts."
+                    "concepts toward advanced understanding."
                 ),
-
+    
             STRATEGY_HISTORY:
                 (
-                    "Explain the historical evolution of "
-                    "the topic, emphasizing why each "
-                    "development was necessary."
+                    "Explain how the topic evolved over "
+                    "time and why each milestone mattered."
                 ),
-
+    
             STRATEGY_RESEARCH:
                 (
-                    "Focus on landmark research, current "
-                    "state-of-the-art methods, open "
-                    "problems and future directions."
+                    "Focus on landmark research, "
+                    "state-of-the-art methods, "
+                    "limitations and future work."
                 )
-
+    
         }
-
-        return strategy_map.get(
-
+    
+        return strategies.get(
+    
             strategy,
-
-            strategy_map[
-
+    
+            strategies[
+    
                 STRATEGY_CONCEPT_FIRST
-
+    
             ]
-
+    
         )
-
 
     # =====================================================
     # BUILD SYSTEM PROMPT
@@ -666,11 +690,13 @@ User Question
 
         ]
 
-        return "\n".join(
-
+        system_prompt = "\n".join(
+        
             lines
-
+        
         )
+        
+        return system_prompt
 
 
     # =====================================================
@@ -684,18 +710,21 @@ User Question
         """
         Build the formatted context block.
         """
-
-        formatted = self.format_context(
-
+    
+        formatted_context = self.format_context(
+    
             context
-
+    
         )
-
-        return self.CONTEXT_TEMPLATE.format(
-
-            context=formatted
-
+    
+        context_prompt = self.CONTEXT_TEMPLATE.format(
+    
+            context=formatted_context
+    
         )
+    
+        return context_prompt
+    
     # =====================================================
     # BUILD USER PROMPT
     # =====================================================
@@ -708,51 +737,70 @@ User Question
         """
         Build the user prompt.
         """
-
-        lines = [
-
-            self.USER_TEMPLATE.format(
-
-                question=question
-
-            ),
-
-            "",
-
-            "Expected Response",
-
-            "-----------------",
-
-            f"Learning Profile : {planner.learning_profile or self.DEFAULT_PROFILE}",
-
-            f"Difficulty       : {planner.difficulty or self.DEFAULT_DIFFICULTY}",
-
-            "",
-
-            "Please:",
-
-            "- Answer the user's question accurately.",
-
-            "- Use the retrieved context as the primary source of information.",
-
-            "- Explain concepts step by step.",
-
-            "- Build intuition before advanced details.",
-
-            "- Use markdown headings.",
-
-            "- Include practical examples whenever useful.",
-
-            "- Mention limitations if information is incomplete."
-
-        ]
-
-        return "\n".join(
-
-            lines
-
+    
+        profile = (
+    
+            planner.learning_profile
+    
+            or
+    
+            self.DEFAULT_PROFILE
+    
         )
-
+    
+        difficulty = (
+    
+            planner.difficulty
+    
+            or
+    
+            self.DEFAULT_DIFFICULTY
+    
+        )
+    
+        lines = [
+    
+            self.USER_TEMPLATE.format(
+    
+                question=question
+    
+            ),
+    
+            "",
+    
+            "Expected Response",
+    
+            "-----------------",
+    
+            f"Learning Profile : {profile}",
+    
+            f"Difficulty       : {difficulty}",
+    
+            "",
+    
+            "Please:",
+    
+            "- Answer the user's question accurately.",
+    
+            "- Use the retrieved context as the primary source.",
+    
+            "- Explain concepts step by step.",
+    
+            "- Build intuition before technical details.",
+    
+            "- Use markdown headings.",
+    
+            "- Include practical examples where appropriate.",
+    
+            "- Clearly acknowledge missing information."
+    
+        ]
+    
+        return "\n".join(
+    
+            lines
+    
+        )
 
     # =====================================================
     # BUILD COMPLETE PROMPT
@@ -768,19 +816,20 @@ User Question
         """
         Assemble the complete prompt.
         """
-
-        return self.FULL_PROMPT_TEMPLATE.format(
-
+    
+        full_prompt = self.FULL_PROMPT_TEMPLATE.format(
+    
             system_prompt=system_prompt,
-
+    
             instruction_prompt=instruction_prompt,
-
+    
             context_prompt=context_prompt,
-
+    
             user_prompt=user_prompt
-
+    
         )
-
+    
+        return full_prompt
 
     # =====================================================
     # BUILD
@@ -795,82 +844,89 @@ User Question
         """
         Build the complete prompt package.
         """
-
+    
         system_prompt = self.build_system_prompt(
-
+    
             planner
-
+    
         )
-
+    
         instruction_prompt = self.build_instruction_prompt(
-
+    
             planner
-
+    
         )
-
+    
         context_prompt = self.build_context_prompt(
-
+    
             context
-
+    
         )
-
+    
         user_prompt = self.build_user_prompt(
-
+    
             question,
-
+    
             planner
-
+    
         )
-
+    
         full_prompt = self.build_full_prompt(
-
+    
             system_prompt,
-
+    
             instruction_prompt,
-
+    
             context_prompt,
-
+    
             user_prompt
-
+    
         )
-
+    
+        metadata = {
+    
+            "strategy":
+    
+                planner.teaching_strategy,
+    
+            "profile":
+    
+                planner.learning_profile,
+    
+            "difficulty":
+    
+                planner.difficulty,
+    
+            "context_sections":
+    
+                len(
+    
+                    context.items
+    
+                ),
+    
+            "retrieval_rate":
+    
+                context.statistics.retrieval_rate
+    
+        }
+    
         return PromptResult(
-
+    
             system_prompt=system_prompt,
-
+    
             instruction_prompt=instruction_prompt,
-
+    
             context_prompt=context_prompt,
-
+    
             user_prompt=user_prompt,
-
+    
             full_prompt=full_prompt,
-
-            metadata={
-
-                "strategy":
-
-                    planner.teaching_strategy,
-
-                "profile":
-
-                    planner.learning_profile,
-
-                "difficulty":
-
-                    planner.difficulty,
-
-                "context_sections":
-
-                    len(context.items),
-
-                "retrieval_rate":
-
-                    context.statistics.retrieval_rate
-
-            }
-
+    
+            metadata=metadata
+    
         )
+    
     # =====================================================
     # VALIDATE
     # =====================================================
@@ -882,21 +938,30 @@ User Question
         """
         Validate the generated prompt.
         """
-
-        if not result.full_prompt.strip():
-
-            return False
-
-        if not result.system_prompt.strip():
-
-            return False
-
-        if not result.user_prompt.strip():
-
-            return False
-
-        return True
-
+    
+        required = [
+    
+            result.system_prompt,
+    
+            result.instruction_prompt,
+    
+            result.context_prompt,
+    
+            result.user_prompt,
+    
+            result.full_prompt
+    
+        ]
+    
+        return all(
+    
+            part.strip()
+    
+            for part
+    
+            in required
+    
+        )
 
     # =====================================================
     # DEBUG
@@ -907,7 +972,7 @@ User Question
         question: str,
         planner: PlannerResult,
         context: ContextResult
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         """
         Return every generated prompt component.
 
@@ -959,7 +1024,7 @@ User Question
 
     def reset(
         self
-    ):
+    ) -> None:
         """
         Reserved for future prompt caching.
 

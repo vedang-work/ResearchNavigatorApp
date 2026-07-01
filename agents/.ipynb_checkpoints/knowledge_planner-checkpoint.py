@@ -25,30 +25,24 @@ This module decides
 
 =========================================================
 """
-from core.constants import *
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
 from typing import (
-
+    Any,
     Dict,
-
     List,
-
     Optional
-
 )
+
+from core.constants import *
 
 import core.database as db
 
 from agents.intent_resolver import (
-
     Intent,
-
     Entity
-
 )
 
 # =========================================================
@@ -80,11 +74,10 @@ STRATEGY_EXAMPLE = "example_driven"
 # KNOWLEDGE BLOCK
 # =========================================================
 
-@dataclass
+@dataclass(slots=True)
 class KnowledgeBlock:
     """
-    One educational unit planned by the
-    Knowledge Planner.
+    One educational retrieval unit.
     """
 
     title: str
@@ -113,17 +106,18 @@ class KnowledgeBlock:
         default_factory=list
     )
 
-    metadata: Dict = field(
+    metadata: Dict[str, Any] = field(
         default_factory=dict
     )
+
 # =========================================================
 # PLANNER RESULT
 # =========================================================
 
-@dataclass
+@dataclass(slots=True)
 class PlannerResult:
     """
-    Final educational plan.
+    Final educational retrieval plan.
     """
 
     entity: Optional[Entity]
@@ -134,13 +128,13 @@ class PlannerResult:
 
     confidence: float = 0.0
 
-    difficulty: str = "Medium"
+    difficulty: str = DIFFICULTY_MEDIUM
 
     blocks: List[KnowledgeBlock] = field(
         default_factory=list
     )
 
-    context: Dict = field(
+    context: Dict[str, Any] = field(
         default_factory=dict
     )
 
@@ -170,9 +164,10 @@ class PlannerResult:
 
     estimated_reading_time: int = 0
 
-    metadata: Dict = field(
+    metadata: Dict[str, Any] = field(
         default_factory=dict
     )
+
 # =========================================================
 # KNOWLEDGE PLANNER
 # =========================================================
@@ -183,8 +178,12 @@ class KnowledgePlanner:
     """
 
     def __init__(self):
-
+        """
+        Initialize the knowledge planner.
+        """
+    
         pass
+    
     # =====================================================
     # BLOCK FACTORY
     # =====================================================
@@ -225,9 +224,9 @@ class KnowledgePlanner:
             metadata={
 
                 "generated_by":
-
-                "KnowledgePlanner"
-
+            
+                self.__class__.__name__
+            
             }
 
         )
@@ -253,7 +252,7 @@ class KnowledgePlanner:
 
             # -----------------------------------------
 
-            if section == "identity":
+            if section == SECTION_IDENTITY:
 
                 blocks.append(
 
@@ -261,7 +260,7 @@ class KnowledgePlanner:
 
                         title="Topic Overview",
 
-                        section="identity",
+                        section=SECTION_IDENTITY,
 
                         priority=priority,
 
@@ -417,7 +416,7 @@ class KnowledgePlanner:
 
             # -----------------------------------------
 
-            elif section == "relationships":
+            elif section == SECTION_RELATIONSHIPS:
 
                 blocks.append(
 
@@ -425,7 +424,7 @@ class KnowledgePlanner:
 
                         title="Related Topics",
 
-                        section="relationships",
+                        section=SECTION_RELATIONSHIPS,
 
                         priority=priority,
 
@@ -577,7 +576,7 @@ class KnowledgePlanner:
 
         ):
 
-            if "relationships" not in existing_sections:
+            if SECTION_RELATIONSHIPS not in existing_sections:
 
                 blocks.append(
 
@@ -585,7 +584,7 @@ class KnowledgePlanner:
 
                         title="Related Topics",
 
-                        section="relationships",
+                        section=SECTION_RELATIONSHIPS,
 
                         priority=next_priority,
 
@@ -603,27 +602,25 @@ class KnowledgePlanner:
         # Future Directions
         # ---------------------------------------------
 
-        if intent.intent != SECTION_FUTURE:
+        if SECTION_FUTURE not in existing_sections:
 
-            if SECTION_FUTURE not in existing_sections:
+            blocks.append(
 
-                blocks.append(
+                self.make_block(
 
-                    self.make_block(
+                    title="Future Research",
 
-                        title="Future Research",
+                    section= SECTION_FUTURE,
 
-                        section= SECTION_FUTURE,
+                    priority=next_priority,
 
-                        priority=next_priority,
+                    curiosity=True,
 
-                        curiosity=True,
-
-                        purpose="Curiosity Trigger"
-
-                    )
+                    purpose="Curiosity Trigger"
 
                 )
+
+            )
 
         return sorted(
 
@@ -668,90 +665,18 @@ class KnowledgePlanner:
         intent: Intent
     ) -> str:
         """
-        Infer the user's learning profile.
-
-        Profiles
-        --------
-        beginner
-        intermediate
-        researcher
+        Determine the learner profile.
         """
-
-        question = intent.normalized_question
-
-        # -------------------------------
-        # Research profile
-        # -------------------------------
-
-        research_keywords = [
-
-            "research",
-
-            "paper",
-
-            "survey",
-
-            "state of the art",
-
-            "sota",
-
-            "benchmark",
-
-            "novel",
-
-            "limitation",
-
-            "future",
-
-            "open problem"
-
-        ]
-
-        if any(
-
-            keyword in question
-
-            for keyword in research_keywords
-
-        ):
-
-            return "researcher"
-
-        # -------------------------------
-        # Beginner profile
-        # -------------------------------
-
-        beginner_keywords = [
-
-            "what is",
-
-            "meaning",
-
-            "explain",
-
-            "introduce",
-
-            "overview",
-
-            PROFILE_BEGINNER
-
-        ]
-
-        if any(
-
-            keyword in question
-
-            for keyword in beginner_keywords
-
-        ):
-
+    
+        if intent.intent == RESEARCH:
+    
+            return PROFILE_RESEARCHER
+    
+        if intent.intent == LEARN:
+    
             return PROFILE_BEGINNER
-
-        # -------------------------------
-        # Intermediate
-
-        return "intermediate"
-
+    
+        return PROFILE_INTERMEDIATE
 
     # =====================================================
     # PROFILE ENRICHMENT
@@ -775,7 +700,7 @@ class KnowledgePlanner:
 
                 if block.section in [
 
-                    "identity",
+                    SECTION_IDENTITY,
 
                     SECTION_LEARNING
 
@@ -797,7 +722,7 @@ class KnowledgePlanner:
 
             # --------------------------
 
-            elif profile == "intermediate":
+            elif profile == PROFILE_INTERMEDIATE:
 
                 if block.section == SECTION_APPLICATIONS:
 
@@ -805,7 +730,7 @@ class KnowledgePlanner:
 
             # --------------------------
 
-            elif profile == "researcher":
+            elif profile == PROFILE_RESEARCHER:
 
                 if block.section in [
 
@@ -821,7 +746,7 @@ class KnowledgePlanner:
 
                 elif block.section in [
 
-                    "identity",
+                    SECTION_IDENTITY,
 
                     SECTION_LEARNING
 
@@ -862,93 +787,93 @@ class KnowledgePlanner:
                 visuals.append(name)
                 seen.add(name)
     
-        for block in blocks:
-    
-            section = block.section.lower()
-    
-            # -----------------------------------------
-            # History
-            # -----------------------------------------
-    
-            if section == SECTION_HISTORY:
-    
-                add_visual("historical_timeline")
-    
-            # -----------------------------------------
-            # Timeline
-            # -----------------------------------------
-    
-            elif section == SECTION_TIMELINE:
-    
-                add_visual(SECTION_TIMELINE)
-    
-                add_visual("chronology")
-    
-            # -----------------------------------------
-            # Researchers
-            # -----------------------------------------
-    
-            elif section == SECTION_RESEARCHERS:
-    
-                add_visual("research_network")
-    
-            # -----------------------------------------
-            # Papers
-            # -----------------------------------------
-    
-            elif section == SECTION_PAPERS:
-    
-                add_visual("citation_graph")
-    
-            # -----------------------------------------
-            # Relationships
-            # -----------------------------------------
-    
-            elif section == "relationships":
-    
-                add_visual("knowledge_graph")
-    
-            # -----------------------------------------
-            # Applications
-            # -----------------------------------------
-    
-            elif section == SECTION_APPLICATIONS:
-    
-                add_visual("application_map")
-    
-            # -----------------------------------------
-            # Comparison
-            # -----------------------------------------
-    
-            elif section == SECTION_COMPARISON:
-    
-                add_visual("comparison_table")
-    
-            # -----------------------------------------
-            # Learning Path
-            # -----------------------------------------
-    
-            elif section == SECTION_LEARNING:
-    
-                add_visual("learning_path")
-    
-            # -----------------------------------------
-            # Future
-            # -----------------------------------------
-    
-            elif section == SECTION_FUTURE:
-    
-                add_visual("future_roadmap")
-    
-            # -----------------------------------------
-            # Concepts
-            # -----------------------------------------
-    
-            elif section == STRATEGY_CONCEPT_FIRST:
-    
-                add_visual("concept_map")
-    
-        return visuals
+            for block in blocks:
+        
+                section = block.section.lower()
+        
+                # -----------------------------------------
+                # History
+                # -----------------------------------------
+        
+                if section == SECTION_HISTORY:
+        
+                    add_visual(VISUAL_HISTORY)
+        
+                # -----------------------------------------
+                # Timeline
+                # -----------------------------------------
+        
+                elif section == SECTION_TIMELINE:
+        
+                    add_visual(VISUAL_TIMELINE)
+        
+                    add_visual(VISUAL_CHRONOLOGY)
+        
+                # -----------------------------------------
+                # Researchers
+                # -----------------------------------------
+        
+                elif section == SECTION_RESEARCHERS:
+        
+                    add_visual(VISUAL_RESEARCH_NETWORK)
+        
+                # -----------------------------------------
+                # Papers
+                # -----------------------------------------
+        
+                elif section == SECTION_PAPERS:
+        
+                    add_visual(VISUAL_CITATION_GRAPH)
+        
+                # -----------------------------------------
+                # Relationships
+                # -----------------------------------------
+        
+                elif section == SECTION_RELATIONSHIPS:
+        
+                    add_visual(VISUAL_KNOWLEDGE_GRAPH)
+        
+                # -----------------------------------------
+                # Applications
+                # -----------------------------------------
+        
+                elif section == SECTION_APPLICATIONS:
+        
+                    add_visual(VISUAL_APPLICATION_MAP)
+        
+                # -----------------------------------------
+                # Comparison
+                # -----------------------------------------
+        
+                elif section == SECTION_COMPARISON:
+        
+                    add_visual(VISUAL_COMPARISON_TABLE)
+        
+                # -----------------------------------------
+                # Learning Path
+                # -----------------------------------------
+        
+                elif section == SECTION_LEARNING:
+        
+                    add_visual(VISUAL_LEARNING_PATH)
+        
+                # -----------------------------------------
+                # Future
+                # -----------------------------------------
+        
+                elif section == SECTION_FUTURE:
+        
+                    add_visual(VISUAL_FUTURE_ROADMAP)
+        
+                # -----------------------------------------
+                # Concepts
+                # -----------------------------------------
+        
+                elif section == STRATEGY_CONCEPT_FIRST:
+        
+                    add_visual(VISUAL_CONCEPT_MAP)
+        
+            return visuals
    
     # =====================================================
     # TEACHING STRATEGY
@@ -963,27 +888,27 @@ class KnowledgePlanner:
         Decide how the topic should be taught.
         """
 
-        if intent.intent == SECTION_HISTORY:
+        if SECTION_HISTORY in intent.sections:
 
             return "historical_journey"
 
-        if intent.intent == "research":
+        if intent.intent == RESEARCH:
 
             return STRATEGY_RESEARCH
 
-        if intent.intent == SECTION_APPLICATIONS:
+        if SECTION_APPLICATIONS in intent.sections:
 
-            return "example_driven"
+            return STRATEGY_EXAMPLE
 
-        if profile == "PROFILE_BEGINNER":
+        if profile == PROFILE_BEGINNER:
 
-            return "concept_first"
+            return STRATEGY_CONCEPT_FIRST
 
-        if profile == "researcher":
+        if profile == PROFILE_RESEARCHER:
 
             return STRATEGY_RESEARCH
 
-        return "guided_learning"
+        return STRATEGY_GUIDED
 
     # =====================================================
     # CURIOUSITY PROMPTS
@@ -1025,112 +950,109 @@ class KnowledgePlanner:
         intent: Intent
     ) -> PlannerResult:
         """
-        Main planning pipeline.
+        Build the educational retrieval plan.
         """
-
-        entity = None
-
-        if intent.entities:
-
-            entity = intent.entities[0]
-
-        blocks = self.build_default_blocks(
-
-            intent
-
+    
+        entity = (
+    
+            intent.entities[0]
+    
+            if intent.entities
+    
+            else None
+    
         )
-
-        blocks = self.enrich_blocks(
-
-            intent,
-
-            blocks
-
-        )
-
+    
         profile = self.determine_learning_profile(
 
             intent
-
+        
         )
-
-        blocks = self.apply_learning_profile(
-
-            profile,
-
-            blocks
-
+        
+        blocks = self.build_default_blocks(
+        
+            intent
+        
         )
-
-        visuals = self.determine_visual_components(
-
-            blocks
-
-        )
-
-        strategy = self.determine_teaching_strategy(
-
+        
+        blocks = self.enrich_blocks(
+        
             intent,
-
+        
+            blocks
+        
+        )
+        
+        blocks = self.apply_learning_profile(
+        
+            profile,
+        
+            blocks
+        
+        )
+        
+        difficulty = self.determine_difficulty(
+        
+            blocks
+        
+        )
+        
+        strategy = self.determine_teaching_strategy(
+        
+            intent,
+        
             profile
-
+        
         )
-
-        questions = self.build_curiosity_prompts(
-
-            entity
-
+        
+        visuals = self.determine_visual_components(
+        
+            blocks
+        
         )
-
-        result = PlannerResult(
-
-            entity=entity,
-
-            blocks=blocks,
-
-            context=context,
-
-            retrieval_order=self.build_retrieval_order(
-
-                blocks
-
-            ),
-
-            suggested_questions=questions,
-
-            visual_components=visuals,
-
-            result = PlannerResult(
-
-                entity=entity,
-
-                learning_profile=profile,
-
-                teaching_strategy=strategy,
-
-                blocks=blocks,
-
-                context=context,
-
-                retrieval_order=self.build_retrieval_order(
-
-                    blocks
-
-                ),
-
-                suggested_questions=questions,
-
-                visual_components=visuals,
-
-                planner_notes=[
-
-                    "Knowledge plan generated successfully."
-
-                ]
+    
+        retrieval_order = [
+    
+            block.section
+    
+            for block
+    
+            in sorted(
+    
+                blocks,
+    
+                key=lambda b: b.priority
+    
             )
+    
+        ]
+    
+        context = {}
+    
+        result = PlannerResult(
+    
+            entity=entity,
+    
+            learning_profile=profile,
+    
+            teaching_strategy=strategy,
+    
+            confidence=intent.confidence,
+    
+            difficulty=difficulty,
+    
+            blocks=blocks,
+    
+            context=context,
+    
+            retrieval_order=retrieval_order,
+    
+            visual_components=visuals
+    
         )
-
+    
         return result
+        
     # =====================================================
     # LEARNING OBJECTIVES
     # =====================================================
@@ -1145,7 +1067,7 @@ class KnowledgePlanner:
 
         objectives = []
 
-        if intent.intent == "learn":
+        if intent.intent == LEARN:
 
             objectives.extend([
 
@@ -1157,7 +1079,7 @@ class KnowledgePlanner:
 
             ])
 
-        elif intent.intent == SECTION_HISTORY:
+        if SECTION_HISTORY in intent.sections:
 
             objectives.extend([
 
@@ -1169,7 +1091,7 @@ class KnowledgePlanner:
 
             ])
 
-        elif intent.intent == "research":
+        elif intent.intent == RESEARCH:
 
             objectives.extend([
 
@@ -1201,34 +1123,35 @@ class KnowledgePlanner:
         blocks: List[KnowledgeBlock]
     ) -> int:
         """
-        Estimate reading time in minutes.
+        Estimate total reading time in minutes.
         """
-
-        return max(
-
-            5,
-
-            len(blocks) * 4
-
+    
+        return sum(
+    
+            block.estimated_time
+    
+            for block
+    
+            in blocks
+    
         )
-    def estimate_difficulty(
+    def determine_difficulty(
         self,
         blocks: List[KnowledgeBlock]
     ) -> str:
         """
-        Estimate difficulty based on the plan.
+        Estimate learning difficulty.
         """
-
+    
         if len(blocks) <= 4:
-
-            return "Easy"
-
+    
+            return DIFFICULTY_EASY
+    
         if len(blocks) <= 8:
-
-            return "Medium"
-
-        return "Hard"
-
+    
+            return DIFFICULTY_MEDIUM
+    
+        return DIFFICULTY_HARD
 
     # =====================================================
     # CONFIDENCE
@@ -1273,7 +1196,7 @@ class KnowledgePlanner:
 
             return []
 
-        if entity.entity_type != "topic":
+        if entity.entity_type != ENTITY_TOPIC:
 
             return []
 
@@ -1341,77 +1264,63 @@ class KnowledgePlanner:
 
     def finalize_plan(
         self,
-        result: PlannerResult,
-        intent: Intent
+        plan: PlannerResult
     ) -> PlannerResult:
         """
-        Add educational metadata.
+        Finalize the retrieval plan.
         """
+    
+        #
+        # Estimated reading time
+        #
+    
+        plan.estimated_reading_time = self.estimate_reading_time(
 
-        result.learning_objectives = (
-
-            self.build_learning_objectives(
-
-                intent
-
-            )
-
+            plan.blocks
+        
         )
-
-        result.estimated_reading_time = (
-
-            self.estimate_reading_time(
-
-                result.blocks
-
+    
+        #
+        # Retrieval order
+        #
+    
+        plan.retrieval_order = [
+    
+            block.section
+    
+            for block
+    
+            in sorted(
+    
+                plan.blocks,
+    
+                key=lambda block: block.priority
+    
             )
-
+    
+        ]
+    
+        #
+        # Planner metadata
+        #
+    
+        plan.metadata.update(
+    
+            {
+    
+                "planner":
+    
+                    self.__class__.__name__,
+    
+                "block_count":
+    
+                    len(plan.blocks)
+    
+            }
+    
         )
-
-        result.difficulty = (
-
-            self.estimate_difficulty(
-
-                result.blocks
-
-            )
-
-        )
-
-        result.metadata = {
-
-            "planner_version":
-
-            "3.0",
-
-            "generated":
-
-                True
-
-        }
-
-        result.confidence = (
-
-            self.planner_confidence(
-
-                intent
-
-            )
-
-        )
-
-        result.next_topics = (
-
-            self.recommend_next_topics(
-
-                result.entity
-
-            )
-
-        )
-
-        return result
-
+    
+        return plan
 
     # =====================================================
     # EXECUTE
@@ -1422,23 +1331,23 @@ class KnowledgePlanner:
         intent: Intent
     ) -> PlannerResult:
         """
-        Public execution API.
+        Execute the complete planning pipeline.
         """
-
+    
         plan = self.build_plan(
-
+    
             intent
-
+    
         )
-
-        return self.finalize_plan(
-
-            plan,
-
-            intent
-
+    
+        plan = self.finalize_plan(
+    
+            plan
+    
         )
-
+    
+        return plan
+    
 # =========================================================
 # PUBLIC API
 # =========================================================

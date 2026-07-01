@@ -66,7 +66,7 @@ from agents.knowledge_planner import (
 # CONTEXT ITEM
 # =========================================================
 
-@dataclass
+@dataclass(slots=True)
 class ContextItem:
     """
     One retrieved knowledge item.
@@ -84,18 +84,17 @@ class ContextItem:
 
     retrieved: bool = True
 
-    metadata: Dict = field(
+    metadata: Dict[str, Any] = field(
 
         default_factory=dict
 
     )
 
-
 # =========================================================
 # CONTEXT RESULT
 # =========================================================
 
-@dataclass
+@dataclass(slots=True)
 class RetrievalStatistics:
     """
     Statistics produced during retrieval.
@@ -115,14 +114,14 @@ class RetrievalStatistics:
         default_factory=list
     )
 
-    summary: Dict = field(
+    summary: Dict[str, Dict[str, Any]] = field(
         default_factory=dict
     )
 
 
 # =========================================================
 
-@dataclass
+@dataclass(slots=True)
 class ContextResult:
     """
     Complete retrieved context.
@@ -134,7 +133,7 @@ class ContextResult:
         default_factory=list
     )
 
-    merged_context: Dict = field(
+    merged_context: Dict[str, Any] = field(
         default_factory=dict
     )
 
@@ -146,22 +145,25 @@ class ContextResult:
         default_factory=list
     )
 
-# =========================================================
-# CONTEXT BUILDER
-# =========================================================
-
-class ContextBuilder:
-    """
-    Retrieves all knowledge required
-    by the planner.
-    """
-
-    def __init__(self):
-
-        pass
 # =====================================================
 # DATABASE RETRIEVER
 # =====================================================
+
+class BaseRetriever:
+    """
+    Base class for every retriever.
+    """
+
+    def retrieve(
+        self,
+        entity: Entity,
+        section: str
+    ) -> Any:
+        """
+        Retrieve one section.
+        """
+    
+        raise NotImplementedError
 
 class DatabaseRetriever(
     BaseRetriever
@@ -175,34 +177,24 @@ class DatabaseRetriever(
         self,
         entity: Entity,
         section: str
-    ):
+    ) -> Any:
         """
-        Retrieve one knowledge section.
+        Retrieve one section from the database.
         """
-
-        return db.get_entity_section(
-
+    
+        result = db.get_entity_section(
+        
             entity.entity_type,
-
+        
             entity.name,
-
+        
             section,
-
+        
             {}
-
+        
         )
-
-class BaseRetriever:
-    """
-    Base class for every retriever.
-    """
-
-    def retrieve(
-        self,
-        entity: Entity,
-        section: str
-    ):
-        raise NotImplementedError
+        
+        return result
 
 # =====================================================
 # CONTEXT BUILDER
@@ -215,9 +207,11 @@ class ContextBuilder:
     """
 
     def __init__(self):
-
+        """
+        Initialize retrievers.
+        """
+    
         self.database = DatabaseRetriever()
-
 
     # -------------------------------------------------
 
@@ -284,38 +278,6 @@ class ContextBuilder:
 
         )
 
-
-    # -------------------------------------------------
-
-    def retrieve_blocks(
-        self,
-        planner: PlannerResult
-    ) -> List[ContextItem]:
-        """
-        Retrieve every planned block.
-        """
-
-        if planner.entity is None:
-
-            return []
-
-        items = []
-
-        for block in planner.blocks:
-
-            items.append(
-
-                self.retrieve_block(
-
-                    planner.entity,
-
-                    block
-
-                )
-
-            )
-
-        return items
     # =====================================================
     # SAFE RETRIEVAL
     # =====================================================
@@ -327,55 +289,47 @@ class ContextBuilder:
     ) -> ContextItem:
         """
         Retrieve a knowledge block safely.
-
-        Retrieval failures never stop the
-        context building process.
         """
-
+    
         try:
-
+    
             return self.retrieve_block(
-
+    
                 entity,
-
+    
                 block
-
+    
             )
-
+    
         except Exception as error:
-
+    
             return ContextItem(
-
+    
                 entity=entity,
-
+    
                 section=block.section,
-
+    
                 data={},
-
+    
                 source=block.source,
-
+    
                 confidence=0.0,
-
+    
                 retrieved=False,
-
+    
                 metadata={
-
-                    "error":
-
-                        str(error),
-
-                    "priority":
-
-                        block.priority,
-
-                    "purpose":
-
-                        block.purpose
-
+    
+                    "error": str(error),
+    
+                    "priority": block.priority,
+    
+                    "purpose": block.purpose,
+    
+                    "exception": error.__class__.__name__
+    
                 }
-
+    
             )
-
 
     # =====================================================
     # SAFE BLOCK RETRIEVAL
@@ -420,7 +374,7 @@ class ContextBuilder:
     def merge_context(
         self,
         items: List[ContextItem]
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         """
         Merge retrieved items into one context
         dictionary.
@@ -454,30 +408,49 @@ class ContextBuilder:
         """
         Collect retrieval warnings.
         """
-
+    
         warnings = []
-
+    
+        seen = set()
+    
         for item in items:
-
+    
             if item.retrieved:
-
+    
                 continue
-
+    
             error = item.metadata.get(
-
+    
                 "error",
-
+    
                 "Unknown retrieval error"
-
+    
             )
-
-            warnings.append(
-
+    
+            message = (
+    
                 f"{item.section}: {error}"
-
+    
             )
-
+    
+            if message in seen:
+    
+                continue
+    
+            seen.add(
+    
+                message
+    
+            )
+    
+            warnings.append(
+    
+                message
+    
+            )
+    
         return warnings
+    
     # =====================================================
     # CONTEXT VALIDATION
     # =====================================================
@@ -488,22 +461,17 @@ class ContextBuilder:
     ) -> bool:
         """
         Validate retrieved context.
-
-        Returns
-        -------
-        bool
-            True if at least one knowledge block
-            was successfully retrieved.
         """
-
-        for item in items:
-
-            if item.retrieved:
-
-                return True
-
-        return False
-
+    
+        return any(
+    
+            item.retrieved
+    
+            for item
+    
+            in items
+    
+        )
 
     # =====================================================
     # RETRIEVAL STATISTICS
@@ -516,37 +484,40 @@ class ContextBuilder:
         """
         Build retrieval statistics.
         """
-
+    
         total = len(items)
-
+    
         successful = sum(
-
+    
             item.retrieved
-
-            for item in items
-
+    
+            for item
+    
+            in items
+    
         )
-
+    
         failed = total - successful
-
-        return RetrievalStatistics{
-
-            "total_blocks": total,
-
-            "retrieved_blocks": successful,
-
-            "failed_blocks": failed,
-
-            "retrieval_rate":
-
+    
+        return RetrievalStatistics(
+    
+            total_blocks=total,
+    
+            retrieved_blocks=successful,
+    
+            failed_blocks=failed,
+    
+            retrieval_rate=(
+    
                 successful / total
-
+    
                 if total
-
+    
                 else 0.0
-
-        }
-
+    
+            )
+    
+        )
 
     # =====================================================
     # MISSING SECTIONS
@@ -579,27 +550,34 @@ class ContextBuilder:
     def summarize_context(
         self,
         items: List[ContextItem]
-    ) -> Dict:
+    ) -> Dict[str, Dict[str, Any]]:
         """
         Produce a lightweight summary
-        of retrieved knowledge.
+        of retrieved context.
         """
-
+    
         summary = {}
-
+    
         for item in items:
-
+    
             summary[item.section] = {
-
-                "retrieved": item.retrieved,
-
-                "source": item.source,
-
-                "confidence": item.confidence
-
+    
+                "retrieved":
+    
+                    item.retrieved,
+    
+                "source":
+    
+                    item.source,
+    
+                "confidence":
+    
+                    item.confidence
+    
             }
-
+    
         return summary
+    
     # =====================================================
     # BUILD CONTEXT
     # =====================================================

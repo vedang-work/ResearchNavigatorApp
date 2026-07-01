@@ -26,6 +26,10 @@ from dataclasses import dataclass, field
 
 from typing import (
 
+    Any,
+
+    Dict,
+
     List,
 
     Optional
@@ -72,7 +76,8 @@ DETAILED = "detailed"
 # =========================================================
 # INTENT OBJECT
 # =========================================================
-@dataclass
+
+@dataclass(slots=True)
 class Entity:
     """
     Entity identified inside a question.
@@ -85,9 +90,12 @@ class Entity:
     confidence: float = 1.0
 
     matched_by: str = "exact"
-    
-@dataclass
+
+@dataclass(slots=True)
 class Intent:
+    """
+    Structured output of the intent resolver.
+    """
 
     raw_question: str
 
@@ -96,18 +104,14 @@ class Intent:
     intent: str = UNKNOWN
 
     entities: List[Entity] = field(
-
         default_factory=list
-
     )
 
     sections: List[str] = field(
-
         default_factory=list
-
     )
 
-    planner_hints: dict = field(
+    planner_hints: Dict[str, Any] = field(
         default_factory=dict
     )
 
@@ -117,12 +121,11 @@ class Intent:
 
     follow_up: bool = False
 
-
 # =========================================================
 # CONVERSATION STATE
 # =========================================================
 
-@dataclass
+@dataclass(slots=True)
 class ConversationState:
     """
     Tracks conversation context across turns.
@@ -138,7 +141,6 @@ class ConversationState:
         default_factory=list
     )
 
-
 # =========================================================
 # INTENT RESOLVER
 # =========================================================
@@ -149,15 +151,18 @@ class IntentResolver:
     """
 
     def __init__(self):
-
+        """
+        Initialize the resolver and preload searchable entities.
+        """
+    
         self.state = ConversationState()
-
+    
         self.topic_names = db.get_all_topic_names()
-
+    
         self.researcher_names = db.get_all_researcher_names()
-
+    
         self.paper_titles = db.get_all_paper_titles()
-
+        
     # -----------------------------------------------------
 
     @staticmethod
@@ -387,42 +392,7 @@ class IntentResolver:
             for word in self.FOLLOW_UP_WORDS
 
         )
-
-    # =====================================================
-    # ENTITY RESOLUTION
-    # =====================================================
-
-    def resolve_entities(
-        self,
-        question: str
-    ) -> List[str]:
-        """
-        Resolve entities from the current
-        question and conversation state.
-        """
-
-        entities = self.detect_entities(
-
-            question
-
-        )
-
-        if entities:
-
-            return entities
-
-        if self.is_follow_up(question):
-
-            if self.state.current_entity:
-
-                return [
-
-                    self.state.current_entity
-
-                ]
-
-        return []
-
+    
     # =====================================================
     # INTENT DETECTION
     # =====================================================
@@ -434,18 +404,31 @@ class IntentResolver:
         """
         Determine the user's primary intent.
         """
-
+    
         text = self.normalize(question)
-
+    
+        best_intent = LEARN
+    
+        best_score = 0
+    
         for intent, keywords in self.INTENT_KEYWORDS.items():
-
-            for keyword in keywords:
-
-                if keyword in text:
-
-                    return intent
-
-        return LEARN
+    
+            score = sum(
+    
+                keyword in text
+    
+                for keyword in keywords
+    
+            )
+    
+            if score > best_score:
+    
+                best_score = score
+    
+                best_intent = intent
+    
+        return best_intent
+        
     # =====================================================
     # SECTION DETECTION
     # =====================================================
@@ -746,50 +729,49 @@ class IntentResolver:
         self,
         intent: str,
         sections: List[str]
-    ) -> dict:
+    ) -> Dict[str, bool]:
         """
-        Build planner hints for the
-        Knowledge Planner.
+        Build planner hints.
         """
-
+    
         hints = {
-
+    
             "show_visual_timeline": False,
-
+    
             "show_related_topics": True,
-
+    
             "show_key_researchers": False,
-
+    
             "show_landmark_papers": False,
-
+    
             "encourage_follow_up": True
-
+    
         }
-
+    
         if "history" in sections:
-
+    
             hints["show_visual_timeline"] = True
-
+    
             hints["show_key_researchers"] = True
-
+    
         if "timeline" in sections:
-
+    
             hints["show_visual_timeline"] = True
-
+    
         if "researchers" in sections:
-
+    
             hints["show_key_researchers"] = True
-
+    
         if "papers" in sections:
-
+    
             hints["show_landmark_papers"] = True
-
-        if intent == LEARN:
-
-            hints["show_related_topics"] = True
-
+    
+        if intent != LEARN:
+    
+            hints["show_related_topics"] = False
+    
         return hints
-        
+    
     # =====================================================
     # SMART ENTITY RESOLUTION
     # =====================================================
@@ -816,37 +798,41 @@ class IntentResolver:
 
         entities = self.detect_entities(question)
 
+        name: Optional[str] = None
+        
         if entities:
-
+        
             name = entities[0]
-
-        if db.topic_exists(name):
-
-            return Entity(
-                name=name,
-                entity_type="topic",
-                confidence=1.0,
-                matched_by="exact"
-            )
-
-        if db.researcher_exists(name):
-
-            return Entity(
-                name=name,
-                entity_type="researcher",
-                confidence=1.0,
-                matched_by="exact"
-            )
-
-        if db.paper_exists(name):
-
-            return Entity(
-                name=name,
-                entity_type="paper",
-                confidence=1.0,
-                matched_by="exact"
-            )
-
+        
+        if name is not None:
+        
+            if db.topic_exists(name):
+        
+                return Entity(
+                    name=name,
+                    entity_type="topic",
+                    confidence=1.0,
+                    matched_by="exact"
+                )
+        
+            if db.researcher_exists(name):
+        
+                return Entity(
+                    name=name,
+                    entity_type="researcher",
+                    confidence=1.0,
+                    matched_by="exact"
+                )
+        
+            if db.paper_exists(name):
+        
+                return Entity(
+                    name=name,
+                    entity_type="paper",
+                    confidence=1.0,
+                    matched_by="exact"
+                )
+        
         # -------------------------------------------------
         # Topic search
         # -------------------------------------------------
@@ -918,37 +904,45 @@ class IntentResolver:
     def update_state(
         self,
         intent: Intent
-    ):
+    ) -> None:
         """
-        Update conversation memory after
-        resolving an intent.
+        Update conversation memory.
         """
-
+    
         self.state.last_intent = intent.intent
-
-        if intent.entities:
-
-            entity = intent.entities[0]
-
-            self.state.previous_entity = self.state.current_entity
-
-            self.state.current_entity = entity
-
-            already_exists = any(
-
-                e.name == entity.name and
-                e.entity_type == entity.entity_type
-
-                for e in self.state.mentioned_entities
-
+    
+        if not intent.entities:
+    
+            return
+    
+        entity = intent.entities[0]
+    
+        self.state.previous_entity = self.state.current_entity
+    
+        self.state.current_entity = entity
+    
+        already_exists = any(
+    
+            e.name == entity.name
+    
+            and
+    
+            e.entity_type == entity.entity_type
+    
+            for e
+    
+            in self.state.mentioned_entities
+    
+        )
+    
+        if not already_exists:
+    
+            self.state.mentioned_entities.append(
+    
+                entity
+    
             )
-
-            if not already_exists:
-
-                self.state.mentioned_entities.append(
-                    entity
-                )
-
+    
     # =====================================================
     # MAIN RESOLUTION PIPELINE
     # =====================================================
@@ -961,76 +955,117 @@ class IntentResolver:
         Resolve natural language into
         an Intent object.
         """
-
-        normalized = self.normalize(question)
-
+    
+        normalized = self.normalize(
+    
+            question
+    
+        )
+    
         intent_type = self.detect_intent(
+    
             normalized
+    
         )
-
+    
         entity = self.resolve_best_entity(
+    
             normalized
+    
         )
-
+    
         entities: List[Entity] = []
-
-        confidence = 0.0
-
+    
+        confidence = 0.25
+    
         if entity is not None:
-
-            entities.append(entity)
-
-            confidence = entity.confidence
-
-        sections = self.detect_sections(
-
-            normalized,
-
-            intent_type
-
-        )
-
-        detail = self.detect_detail_level(
-
-            normalized
-
-        )
-
-        planner_hints = self.build_planner_hints(
-
-            intent_type,
-
-            sections
-
-        )
-
-        result = Intent(
-
-            raw_question=question,
-
-            normalized_question=normalized,
-
-            intent=intent_type,
-
-            entities=entities,
-
-            sections=sections,
-
-            planner_hints=planner_hints,
-
-            detail_level=detail,
-
-            confidence=confidence,
-
-            follow_up=self.is_follow_up(
-                normalized
+    
+            entities.append(
+    
+                entity
+    
             )
-
+    
+            confidence = max(
+    
+                confidence,
+    
+                entity.confidence
+    
+            )
+    
+        sections = self.detect_sections(
+    
+            normalized,
+    
+            intent_type
+    
         )
-
-        self.update_state(result)
-
+    
+        detail = self.detect_detail_level(
+    
+            normalized
+    
+        )
+    
+        planner_hints = self.build_planner_hints(
+    
+            intent_type,
+    
+            sections
+    
+        )
+    
+        if len(sections) > 2:
+    
+            confidence += 0.05
+    
+        if detail == DETAILED:
+    
+            confidence += 0.05
+    
+        confidence = min(
+    
+            confidence,
+    
+            1.0
+    
+        )
+    
+        result = Intent(
+    
+            raw_question=question,
+    
+            normalized_question=normalized,
+    
+            intent=intent_type,
+    
+            entities=entities,
+    
+            sections=sections,
+    
+            planner_hints=planner_hints,
+    
+            detail_level=detail,
+    
+            confidence=confidence,
+    
+            follow_up=self.is_follow_up(
+    
+                normalized
+    
+            )
+    
+        )
+    
+        self.update_state(
+    
+            result
+    
+        )
+    
         return result
+    
     # =====================================================
     # VALIDATION
     # =====================================================
@@ -1041,22 +1076,21 @@ class IntentResolver:
     ) -> bool:
         """
         Validate resolved intent.
-
-        Returns
-        -------
-        bool
-            True if the intent is usable.
         """
-
+    
+        if not intent.intent:
+    
+            return False
+    
         if intent.intent == UNKNOWN:
+    
             return False
-
+    
         if not intent.entities:
-
+    
             return False
-
+    
         return True
-
 
     # =====================================================
     # EXPLANATION
@@ -1065,7 +1099,7 @@ class IntentResolver:
     def explain(
         self,
         intent: Intent
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         """
         Return a human-readable explanation of
         how the resolver interpreted the query.
@@ -1132,7 +1166,7 @@ class IntentResolver:
     def debug(
         self,
         question: str
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         """
         Useful during notebook development.
         """
@@ -1195,25 +1229,28 @@ class IntentResolver:
     # RESET
     # =====================================================
 
-    def reset(self):
+    def reset(
+        self
+    ) -> None:
         """
         Reset conversation state.
         """
-
+    
         self.state = ConversationState()
-
 
     # =====================================================
     # STATE
     # =====================================================
 
-    def get_state(self) -> ConversationState:
+    def get_state(
+        self
+    ) -> ConversationState:
         """
         Return conversation state.
         """
-
+    
         return self.state
-
+    
 # =========================================================
 # PUBLIC API
 # =========================================================

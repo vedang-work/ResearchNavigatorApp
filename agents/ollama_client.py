@@ -37,16 +37,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Iterator
 
 import ollama
 
 from builder.prompt_builder import PromptResult
-
-
-# =========================================================
-# DEFAULT CONFIGURATION
-# =========================================================
 
 from core.config import settings
 
@@ -54,31 +49,34 @@ from core.config import settings
 # GENERATION CONFIGURATION
 # =========================================================
 
-@dataclass
+@dataclass(slots=True)
 class GenerationConfig:
     """
     Generation parameters supplied
     to Ollama.
     """
 
-    self.client = ollama.Client(
+    host: str = settings.ollama.host
 
-        host=settings.ollama.host
+    model: str = settings.ollama.model
 
-    )
-    
-    stream: bool = False
+    temperature: float = settings.ollama.temperature
 
-    options: Dict = field(
+    top_p: float = settings.ollama.top_p
+
+    num_predict: int = settings.ollama.num_predict
+
+    stream: bool = settings.ollama.stream
+
+    options: Dict[str, Any] = field(
         default_factory=dict
     )
-
 
 # =========================================================
 # OLLAMA RESPONSE
 # =========================================================
 
-@dataclass
+@dataclass(slots=True)
 class OllamaResponse:
     """
     Structured model response.
@@ -96,7 +94,7 @@ class OllamaResponse:
 
     duration: float = 0.0
 
-    metadata: Dict = field(
+    metadata: Dict[str, Any] = field(
         default_factory=dict
     )
 
@@ -161,7 +159,7 @@ class OllamaClient:
 
         self.client = ollama.Client(
 
-            host=DEFAULT_HOST
+            host=self.config.host
 
         )
     # =====================================================
@@ -172,20 +170,16 @@ class OllamaClient:
         self
     ) -> bool:
         """
-        Check whether the Ollama server is
-        reachable.
+        Check server availability.
         """
-
-        try:
-
-            self.client.list()
-
-            return True
-
-        except Exception:
-
-            return False
-
+    
+        return self.health().get(
+    
+            "server_running",
+    
+            False
+    
+        )
 
     # =====================================================
     # AVAILABLE MODELS
@@ -195,95 +189,16 @@ class OllamaClient:
         self
     ) -> List[str]:
         """
-        Return every installed model.
+        Return installed model names.
         """
-
-        try:
-
-            response = self.client.list()
-
-        except Exception:
-
-            return []
-
-        models = []
-
-        #
-        # Compatible with multiple SDK versions.
-        #
-
-        if hasattr(response, "models"):
-
-            iterable = response.models
-
-        elif isinstance(response, dict):
-
-            iterable = response.get(
-
-                "models",
-
-                []
-
-            )
-
-        else:
-
-            iterable = []
-
-        for model in iterable:
-
-            #
-            # New SDK objects
-            #
-
-            if hasattr(model, "model"):
-
-                models.append(
-
-                    model.model
-
-                )
-
-                continue
-
-            #
-            # Older dictionary responses
-            #
-
-            if isinstance(model, dict):
-
-                name = (
-
-                    model.get("model")
-
-                    or
-
-                    model.get("name")
-
-                )
-
-                if name:
-
-                    models.append(
-
-                        name
-
-                    )
-
-                continue
-
-            #
-            # Fallback
-            #
-
-            models.append(
-
-                str(model)
-
-            )
-
-        return models
-
+    
+        return self.health().get(
+    
+            "installed_models",
+    
+            []
+    
+        )
 
     # =====================================================
     # MODEL EXISTS
@@ -296,27 +211,24 @@ class OllamaClient:
         """
         Check whether a model exists.
         """
-
-        model = (
-
-            model
-
-            or
-
-            self.config.model
-
-        )
-
+    
+        model = model or self.config.model
+    
         return (
-
+    
             model
-
+    
             in
-
-            self.available_models()
-
+    
+            self.health().get(
+    
+                "installed_models",
+    
+                []
+    
+            )
+    
         )
-
 
     # =====================================================
     # HEALTH
@@ -324,37 +236,114 @@ class OllamaClient:
 
     def health(
         self
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         """
         Return client health information.
         """
-
-        models = self.available_models()
-
-        return {
-
-            "server_running":
-
-                self.is_server_running(),
-
-            "configured_model":
-
-                self.config.model,
-
-            "model_available":
-
-                self.config.model in models,
-
-            "installed_models":
-
-                models,
-
-            "host":
-
-                DEFAULT_HOST
-
-        }
-
+    
+        try:
+    
+            response = self.client.list()
+    
+            if hasattr(response, "models"):
+    
+                iterable = response.models
+    
+            elif isinstance(response, dict):
+    
+                iterable = response.get(
+    
+                    "models",
+    
+                    []
+    
+                )
+    
+            else:
+    
+                iterable = []
+    
+            models = []
+    
+            for model in iterable:
+    
+                if hasattr(model, "model"):
+    
+                    models.append(
+    
+                        model.model
+    
+                    )
+    
+                elif isinstance(model, dict):
+    
+                    models.append(
+    
+                        model.get(
+    
+                            "model",
+    
+                            model.get(
+    
+                                "name",
+    
+                                ""
+    
+                            )
+    
+                        )
+    
+                    )
+    
+                else:
+    
+                    models.append(
+    
+                        str(model)
+    
+                    )
+    
+            return {
+    
+                "server_running": True,
+    
+                "configured_model":
+    
+                    self.config.model,
+    
+                "model_available":
+    
+                    self.config.model in models,
+    
+                "installed_models":
+    
+                    models,
+    
+                "host":
+    
+                    self.config.host
+    
+            }
+    
+        except Exception:
+    
+            return {
+    
+                "server_running": False,
+    
+                "configured_model":
+    
+                    self.config.model,
+    
+                "model_available": False,
+    
+                "installed_models": [],
+    
+                "host":
+    
+                    self.config.host
+    
+            }    
 
     # =====================================================
     # VALIDATE
@@ -386,6 +375,34 @@ class OllamaClient:
             )
 
         return True
+
+    # =====================================================
+    # RESPONSE NORMALIZATION
+    # =====================================================
+    
+    def _response_to_dict(
+        self,
+        response: Any
+    ) -> Dict[str, Any]:
+        """
+        Convert an Ollama SDK response into a dictionary.
+    
+        Supports both older and newer SDK versions.
+        """
+    
+        if isinstance(response, dict):
+    
+            return response
+    
+        if hasattr(response, "model_dump"):
+    
+            return response.model_dump()
+    
+        if hasattr(response, "dict"):
+    
+            return response.dict()
+    
+        return {}
     # =====================================================
     # GENERATE
     # =====================================================
@@ -401,14 +418,7 @@ class OllamaClient:
 
         config = config or self.config
 
-        if not self.validate():
-
-            raise RuntimeError(
-
-                "Ollama server or configured model "
-                "is not available."
-
-            )
+        self.validate()
 
         response = self.client.generate(
 
@@ -432,16 +442,12 @@ class OllamaClient:
 
         )
 
-        metadata = {}
+        metadata = self._response_to_dict(
 
-        if hasattr(response, "dict"):
+            response
 
-            metadata = response.dict()
-
-        elif isinstance(response, dict):
-
-            metadata = response
-
+        )
+        
         return OllamaResponse(
 
             model=config.model,
@@ -517,62 +523,64 @@ class OllamaClient:
         self,
         prompt: PromptResult,
         config: Optional[GenerationConfig] = None
-    ):
+    ) -> Iterator[str]:
         """
-        Stream tokens from Ollama.
-
-        Yields
-        ------
-        str
-            Individual response chunks.
+        Stream response chunks from Ollama.
         """
-
+    
         config = config or self.config
-
+    
         self.validate()
-        
+    
         stream = self.client.generate(
-
+    
             model=config.model,
-
+    
             prompt=prompt.full_prompt,
-
+    
             options={
-
+    
                 "temperature": config.temperature,
-
+    
                 "top_p": config.top_p,
-
+    
                 "num_predict": config.num_predict,
-
+    
                 **config.options
-
+    
             },
-
-            stream=True
-
+    
+            stream=config.stream
+    
         )
-
+    
         for chunk in stream:
-
-            if hasattr(chunk, "dict"):
-
-                chunk = chunk.dict()
-
-            yield chunk.get(
-
-                "response",
-
-                ""
-
+    
+            chunk = self._response_to_dict(
+    
+                chunk
+    
             )
+    
+            text = chunk.get(
+    
+                "response",
+    
+                ""
+    
+            )
+    
+            if text:
+    
+                yield text
+    
     # =====================================================
     # RESET
     # =====================================================
 
     def reset(
         self
-    ):
+    ) -> None:
         """
         Reserved for future implementations.
 
@@ -589,41 +597,46 @@ class OllamaClient:
 
     def debug(
         self
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         """
         Return diagnostic information.
         """
-
+    
         return {
-
-            "health": self.health(),
-
+    
+            "health":
+    
+                self.health(),
+    
             "configuration": {
-
+    
+                "host":
+    
+                    self.config.host,
+    
                 "model":
-
+    
                     self.config.model,
-
+    
                 "temperature":
-
+    
                     self.config.temperature,
-
+    
                 "top_p":
-
+    
                     self.config.top_p,
-
+    
                 "num_predict":
-
+    
                     self.config.num_predict,
-
+    
                 "stream":
-
+    
                     self.config.stream
-
+    
             }
-
+    
         }
-
 
     # =====================================================
     # UPDATE CONFIGURATION
@@ -632,25 +645,40 @@ class OllamaClient:
     def update_config(
         self,
         **kwargs
-    ):
+    ) -> None:
         """
         Update generation configuration.
         """
-
+    
         for key, value in kwargs.items():
-
-            if hasattr(self.config, key):
-
+    
+            if hasattr(
+    
+                self.config,
+    
+                key
+    
+            ):
+    
                 setattr(
-
+    
                     self.config,
-
+    
                     key,
-
+    
                     value
-
+    
                 )
-
+    
+        #
+        # Recreate SDK client
+        #
+    
+        self.client = ollama.Client(
+    
+            host=self.config.host
+    
+        )
 
     # =====================================================
     # CURRENT MODEL
@@ -661,10 +689,30 @@ class OllamaClient:
         self
     ) -> str:
         """
-        Active model name.
+        Active model.
         """
-
+    
         return self.config.model
+    
+    
+    @model.setter
+    def model(
+        self,
+        value: str
+    ):
+    
+        value = value.strip()
+    
+        if not value:
+    
+            raise ValueError(
+    
+                "Model name cannot be empty."
+    
+            )
+    
+        self.config.model = value
+    
 # =========================================================
 # PUBLIC API
 # =========================================================

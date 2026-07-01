@@ -33,9 +33,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from typing import Dict, Optional
+from typing import (
 
-from core.ollama_client import OllamaResponse
+    Dict,
+
+    List,
+
+    Optional
+
+)
+
+from core.ollama_client import (
+
+    OllamaClient,
+
+    OllamaResponse
+
+)
 
 from agents.intent_resolver import (
     IntentResolver,
@@ -64,15 +78,11 @@ from builder.response_builder import (
 
 from core.config import settings
 
-print(settings.version)
-print(settings.project_name)
-print(settings.application_description)
-
 # =========================================================
 # SESSION
 # =========================================================
 
-@dataclass
+@dataclass(slots=True)
 class AssistantSession:
     """
     Stores conversation state.
@@ -82,10 +92,17 @@ class AssistantSession:
 
     turn_count: int = 0
 
-    metadata: Dict = field(
-        default_factory=dict
-    )
+    last_question: str = ""
 
+    last_intent: Optional[Intent] = None
+
+    last_plan: Optional[PlannerResult] = None
+
+    metadata: Dict[str, str] = field(
+
+        default_factory=dict
+
+    )
 
 # =========================================================
 # RESEARCH ASSISTANT
@@ -97,21 +114,22 @@ class ResearchAssistant:
     """
 
     def __init__(self):
-
+        """
+        Initialize every system component.
+        """
+    
         self.intent_resolver = IntentResolver()
-
+    
         self.knowledge_planner = KnowledgePlanner()
-
+    
         self.context_builder = ContextBuilder()
-
+    
         self.prompt_builder = PromptBuilder()
-
+    
         self.response_builder = ResponseBuilder()
-
-        # Ollama client will be added later
-
+    
         self.ollama = OllamaClient()
-
+    
         self.session = AssistantSession()
     # =====================================================
     # INTENT
@@ -205,9 +223,10 @@ class ResearchAssistant:
 
         if self.ollama is None:
 
-            return (
-                "LLM client has not yet been "
-                "configured."
+            raise RuntimeError(
+        
+                "Ollama client has not been initialized."
+        
             )
 
         return self.ollama.generate(
@@ -264,6 +283,10 @@ class ResearchAssistant:
 
         )
 
+        self.session.last_question = question
+
+        self.session.last_intent = intent
+
         # -----------------------------------------
         # Build educational plan
         # -----------------------------------------
@@ -273,6 +296,8 @@ class ResearchAssistant:
             intent
 
         )
+
+        self.session.last_plan = planner
 
         # -----------------------------------------
         # Retrieve context
@@ -305,21 +330,13 @@ class ResearchAssistant:
             prompt
         )
 
-        result = self._build_response(
-        
-            llm_response.response,
-        
-            planner
-        
-        )
-
         # -----------------------------------------
         # Build structured response
         # -----------------------------------------
 
         result = self._build_response(
 
-            llm_response,
+            llm_response.response,
 
             planner
 
@@ -334,27 +351,42 @@ class ResearchAssistant:
 
     def session_info(
         self
-    ) -> Dict:
+    ) -> Dict[str, object]:
         """
         Return current session information.
         """
-
+    
         return {
-
+    
             "conversation_id":
-
+    
                 self.session.conversation_id,
-
+    
             "turn_count":
-
+    
                 self.session.turn_count,
-
+    
+            "last_question":
+    
+                self.session.last_question,
+    
+            "last_intent":
+    
+                (
+    
+                    self.session.last_intent.intent
+    
+                    if self.session.last_intent
+    
+                    else None
+    
+                ),
+    
             "metadata":
-
+    
                 self.session.metadata
-
+    
         }
-
 
     # =====================================================
     # DEBUG PIPELINE
@@ -366,71 +398,87 @@ class ResearchAssistant:
     ) -> Dict:
         """
         Execute every stage while exposing
-        intermediate results.
+        intermediate pipeline results.
         """
-
+    
         intent = self._resolve_intent(
-        
+    
             question
-        
+    
         )
-        
+    
         planner = self._build_plan(
-        
+    
             intent
-        
+    
         )
-        
+    
         context = self._build_context(
-        
+    
             planner
-        
+    
         )
-        
+    
         prompt = self._build_prompt(
-        
+    
             question,
-        
+    
             planner,
-        
+    
             context
-        
+    
         )
-        
+    
         return {
-        
+    
+            "question":
+    
+                question,
+    
             "intent":
-        
+    
                 intent,
-        
+    
             "planner":
-        
+    
                 planner,
-        
+    
             "context":
-        
+    
                 context,
-        
+    
             "prompt":
-        
-                prompt
-        
+    
+                prompt,
+    
+            "session":
+    
+                self.session_info()
+    
         }
+    
     # =====================================================
     # RESET SESSION
     # =====================================================
 
     def reset(
         self
-    ):
+    ) -> None:
         """
-        Reset the current assistant session.
+        Reset the assistant state.
         """
-
+    
         self.session = AssistantSession()
-
+    
         self.intent_resolver.reset()
-
+    
+        self.knowledge_planner.reset()
+    
+        self.context_builder.reset()
+    
+        self.prompt_builder.reset()
+    
+        self.response_builder.reset()
 
     # =====================================================
     # HEALTH CHECK
@@ -438,38 +486,48 @@ class ResearchAssistant:
 
     def health(
         self
-    ) -> Dict:
+    ) -> Dict[str, bool]:
         """
         Return health information about all
         assistant components.
         """
-
+    
+        ollama_health = False
+    
+        try:
+    
+            ollama_health = self.ollama.health()
+    
+        except Exception:
+    
+            ollama_health = False
+    
         return {
-
+    
             "intent_resolver":
-
+    
                 self.intent_resolver is not None,
-
+    
             "knowledge_planner":
-
+    
                 self.knowledge_planner is not None,
-
+    
             "context_builder":
-
+    
                 self.context_builder is not None,
-
+    
             "prompt_builder":
-
+    
                 self.prompt_builder is not None,
-
+    
             "response_builder":
-
+    
                 self.response_builder is not None,
-
-            "llm":
-
-                self.ollama.health()
-
+    
+            "ollama":
+    
+                ollama_health
+    
         }
 
     # =====================================================
@@ -478,23 +536,39 @@ class ResearchAssistant:
     
     def available_models(
         self
-    ):
+    ) -> List[str]:
         """
         Return installed Ollama models.
         """
     
-        return self.ollama.available_models()
-
+        try:
+    
+            return self.ollama.available_models()
+    
+        except Exception:
+    
+            return []
+    
     # =====================================================
     # VALIDATE
     # =====================================================
     
     def validate(
         self
-    ) -> Dict:
+    ) -> Dict[str, bool]:
         """
-        Validate assistant components.
+        Validate every assistant component.
         """
+    
+        ollama_valid = False
+    
+        try:
+    
+            ollama_valid = self.ollama.validate()
+    
+        except Exception:
+    
+            ollama_valid = False
     
         return {
     
@@ -522,7 +596,7 @@ class ResearchAssistant:
     
             "ollama":
     
-                self.ollama.validate()
+                ollama_valid
     
         }
 
@@ -533,7 +607,7 @@ class ResearchAssistant:
 
     def components(
         self
-    ) -> Dict:
+    ) -> Dict[str, object]:
         """
         Return references to every component.
         Useful for debugging.

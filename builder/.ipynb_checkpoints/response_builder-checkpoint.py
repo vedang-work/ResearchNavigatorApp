@@ -32,6 +32,8 @@ from dataclasses import dataclass, field
 
 from typing import (
 
+    Any,
+
     Dict,
 
     List,
@@ -46,12 +48,19 @@ from builder.prompt_builder import (
 
 )
 
+from agents.knowledge_planner import (
+
+    PlannerResult
+
+)
+
+
 
 # =========================================================
 # RESPONSE SECTION
 # =========================================================
 
-@dataclass
+@dataclass(slots=True)
 class ResponseSection:
     """
     One educational section returned
@@ -66,18 +75,17 @@ class ResponseSection:
 
     expandable: bool = True
 
-    metadata: Dict = field(
+    metadata: Dict[str, Any] = field(
 
         default_factory=dict
 
     )
 
-
 # =========================================================
 # RESPONSE RESULT
 # =========================================================
 
-@dataclass
+@dataclass(slots=True)
 class ResponseResult:
     """
     Final structured response.
@@ -103,12 +111,11 @@ class ResponseResult:
 
     )
 
-    metadata: Dict = field(
+    metadata: Dict[str, Any] = field(
 
         default_factory=dict
 
     )
-
 
 # =========================================================
 # RESPONSE BUILDER
@@ -121,7 +128,10 @@ class ResponseBuilder:
     """
 
     def __init__(self):
-
+        """
+        ResponseBuilder is intentionally stateless.
+        """
+    
         pass
     # =====================================================
     # CLEAN RESPONSE
@@ -132,33 +142,40 @@ class ResponseBuilder:
         response: str
     ) -> str:
         """
-        Clean the raw LLM response.
+        Normalize raw LLM output.
         """
-
-        if response is None:
-
+    
+        if not response:
+    
             return ""
-
+    
         response = response.replace(
-
+    
             "\r\n",
-
+    
             "\n"
-
+    
         )
-
+    
+        response = response.replace(
+    
+            "\r",
+    
+            "\n"
+    
+        )
+    
         while "\n\n\n" in response:
-
+    
             response = response.replace(
-
+    
                 "\n\n\n",
-
+    
                 "\n\n"
-
+    
             )
-
+    
         return response.strip()
-
 
     # =====================================================
     # SPLIT INTO SECTIONS
@@ -185,7 +202,7 @@ class ResponseBuilder:
 
         for line in response.splitlines():
 
-            if line.startswith("## "):
+            if line.lstrip().startswith("## "):
 
                 if current:
 
@@ -197,7 +214,11 @@ class ResponseBuilder:
 
                     current = []
 
-            current.append(line)
+            current.append(
+
+                line.rstrip()
+            
+            )
 
         if current:
 
@@ -238,7 +259,7 @@ class ResponseBuilder:
 
             )
 
-        title = lines[0]
+        title = lines[0].strip()
 
         if title.startswith("## "):
 
@@ -318,27 +339,37 @@ class ResponseBuilder:
     ) -> str:
         """
         Extract the introductory summary.
-
-        The summary is everything before the
-        first markdown section.
+    
+        Everything before the first
+        markdown heading is considered
+        the summary.
         """
-
-        response = self.clean_response(response)
-
-        lines = response.splitlines()
-
+    
+        response = self.clean_response(
+    
+            response
+    
+        )
+    
         summary = []
-
-        for line in lines:
-
-            if line.startswith("## "):
-
+    
+        for line in response.splitlines():
+    
+            if line.lstrip().startswith("## "):
+    
                 break
-
-            summary.append(line)
-
-        return "\n".join(summary).strip()
-
+    
+            summary.append(
+    
+                line.rstrip()
+    
+            )
+    
+        return "\n".join(
+    
+            summary
+    
+        ).strip()
 
     # =====================================================
     # SECTION METADATA
@@ -349,29 +380,50 @@ class ResponseBuilder:
         sections: List[ResponseSection]
     ) -> List[ResponseSection]:
         """
-        Attach useful metadata to each section.
+        Attach metadata to every section.
         """
-
+    
         for section in sections:
-
+    
+            words = section.content.split()
+    
             section.metadata = {
-
+    
                 "word_count":
-
-                    len(section.content.split()),
-
+    
+                    len(
+    
+                        words
+    
+                    ),
+    
                 "character_count":
-
-                    len(section.content),
-
+    
+                    len(
+    
+                        section.content
+    
+                    ),
+    
+                "line_count":
+    
+                    len(
+    
+                        section.content.splitlines()
+    
+                    ),
+    
                 "empty":
-
-                    len(section.content.strip()) == 0
-
+    
+                    not bool(
+    
+                        words
+    
+                    )
+    
             }
-
+    
         return sections
-
 
     # =====================================================
     # RESPONSE METADATA
@@ -381,25 +433,61 @@ class ResponseBuilder:
         self,
         response: str,
         sections: List[ResponseSection]
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         """
-        Build metadata describing the response.
+        Build response metadata.
         """
-
-        total_words = len(response.split())
-
+    
+        total_words = len(
+    
+            response.split()
+    
+        )
+    
+        total_characters = len(
+    
+            response
+    
+        )
+    
         return {
+    
+            "word_count":
+    
+                total_words,
+    
+            "character_count":
+    
+                total_characters,
+    
+            "section_count":
+    
+                len(
+    
+                    sections
+    
+                ),
+    
+            "has_sections":
+    
+                bool(
+    
+                    sections
+    
+                ),
+    
+            "is_markdown":
 
-            "word_count": total_words,
-
-            "section_count": len(sections),
-
-            "has_sections": len(sections) > 0,
-
-            "is_markdown": "##" in response
-
+                any(
+            
+                    line.lstrip().startswith("## ")
+            
+                    for line
+            
+                    in response.splitlines()
+            
+                )
         }
-
 
     # =====================================================
     # VISUAL PLAN
@@ -407,7 +495,7 @@ class ResponseBuilder:
 
     def build_visual_plan(
         self,
-        planner
+        planner:Optional[PlannerResult]
     ) -> List[str]:
         """
         Reuse planner visual decisions.
@@ -432,7 +520,7 @@ class ResponseBuilder:
 
     def build_curiosity_prompts(
         self,
-        planner
+        planner: Optional[PlannerResult]
     ) -> List[str]:
         """
         Reuse planner curiosity prompts.
@@ -507,17 +595,17 @@ class ResponseBuilder:
         result = ResponseResult(
 
             answer=summary,
-
+        
             sections=sections,
-
+        
             suggested_questions=curiosity,
-
+        
             visual_components=visuals,
-
+        
             metadata=metadata
-
+        
         )
-
+        
         return result
 
 
@@ -527,56 +615,65 @@ class ResponseBuilder:
 
     def debug(
         self,
-        response: str,
-        planner: Optional[PlannerResult] = None
-    ) -> Dict:
+        result: ResponseResult
+    ) -> Dict[str, Any]:
         """
-        Debug helper.
+        Return response diagnostics.
         """
-
-        result = self.build(
-
-            response,
-
-            planner
-
-        )
-
+    
         return {
-
-            "summary":
-
-                result.answer,
-
+    
+            "summary_length":
+    
+                len(
+    
+                    result.answer
+    
+                ),
+    
             "sections":
-
-                len(result.sections),
-
-            "visuals":
-
-                result.visual_components,
-
-            "curiosity":
-
-                result.suggested_questions,
-
+    
+                len(
+    
+                    result.sections
+    
+                ),
+    
+            "visual_components":
+    
+                len(
+    
+                    result.visual_components
+    
+                ),
+    
+            "suggested_questions":
+    
+                len(
+    
+                    result.suggested_questions
+    
+                ),
+    
             "metadata":
-
+    
                 result.metadata
-
+    
         }
-
 
     # =====================================================
     # RESET
     # =====================================================
 
-    def reset(self):
+    def reset(
+        self
+    ) -> None:
         """
-        Reserved for future conversation-aware
-        response builders.
+        Reserved for future response caching.
+    
+        ResponseBuilder is stateless.
         """
-
+    
         pass
 # =========================================================
 # PUBLIC API
